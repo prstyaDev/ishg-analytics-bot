@@ -1,15 +1,24 @@
 @echo off
-color 0A
+chcp 65001 >nul
 cls
 echo.
-echo ========================================
-echo    ISHG Bot - Startup Script
-echo ========================================
+echo ===========================================
+echo    ██╗ ██╗  ██╗ ███████╗ ██████╗ 
+echo    ██║ ██║  ██║ ██╔════╝ ██╔════╝ 
+echo    ██║ ███████║ ███████╗ ██║  ███╗
+echo    ██║ ██╔══██║ ╚════██║ ██║   ██║
+echo    ██║ ██║  ██║ ███████║ ╚██████╔╝
+echo    ╚═╝ ╚═╝  ╚═╝ ╚══════╝  ╚═════╝ 
+echo ===========================================
+echo           IHSG ANALYTICS BOT v1.0
+echo             Built by @prstyaDev
+echo ===========================================
 echo.
-echo Memulai mesin AI Ollama...
+echo    [*] Mempersiapkan environment...
+echo    [*] Memanggil mesin AI Ollama (qwen3:8b)...
 start "Ollama AI Engine" cmd /c "ollama run qwen3:8b"
 timeout /t 5 /nobreak >nul
-echo Menyalakan server Bot Telegram...
+echo    [*] Menghubungkan ke server Telegram...
 echo.
 npm run dev
 pause
