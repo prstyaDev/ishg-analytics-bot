@@ -9,7 +9,7 @@ bot.on(message('text'), async (ctx) => {
   console.log(`[Pesan Masuk] dari ${ctx.from.first_name}: ${ctx.message.text}`);
   try {
     await ctx.sendChatAction('typing');
-    const reply = await processQuery(ctx.message.text, ctx.from.id.toString());
+    const reply = await processQuery(ctx.message.text, ctx.chat.id.toString());
     console.log('[AI Final Output]:', reply);
     if (!reply || reply.trim() === '') {
       await ctx.reply('AI berhasil menarik data pasar, tetapi gagal merangkumnya menjadi teks.');
