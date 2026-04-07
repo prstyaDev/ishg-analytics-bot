@@ -17,6 +17,7 @@ function getDateRange(daysBack: number) {
 
 bot.on(message('text'), async (ctx) => {
   console.log(`[Pesan Masuk] dari ${ctx.from.first_name}: ${ctx.message.text}`);
+  console.log("[Debug] Memproses pesan:", ctx.message.text);
   try {
     await ctx.sendChatAction('typing');
     let reply = await processQuery(ctx.message.text, ctx.chat.id.toString());
@@ -31,10 +32,11 @@ bot.on(message('text'), async (ctx) => {
     const chartRegex = /\[INSTRUCTION:\s*GENERATE_CHART_FOR_SYMBOL:\s*([A-Z0-9]+)\]/i;
     const match = reply.match(chartRegex);
 
+    // Langsung hapus SELURUH instruksi dari balasan sebelum diproses apa-apa (gunakan global regex)
+    reply = reply.replace(/\[INSTRUCTION:.*?\]/gi, '').trim();
+
     if (match) {
       const symbol = match[1];
-      // Hapus instruksi rahasia dari teks balasan
-      reply = reply.replace(chartRegex, '').trim();
 
       // Kasih tau user kalau bot lagi proses gambar
       await ctx.reply(`📊 Memproses grafik untuk saham ${symbol}...`);

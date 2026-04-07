@@ -45,6 +45,7 @@ export const getPrice = tool({
         console.log(`[Cache HIT] ${cacheKey}`);
         return cached;
       }
+      console.log(`[Cache MISS] Fetching new data for: ${cacheKey}`);
       const { data } = await api.get('/stock/idx/prices', {
         params: { symbols: sym }
       });
@@ -84,6 +85,7 @@ export const getMarketSummary = tool({
         console.log(`[Cache HIT] ${cacheKey}`);
         return cached;
       }
+      console.log(`[Cache MISS] Fetching new data for: ${cacheKey}`);
       const { data } = await api.get('/stock/idx/trending');
       console.log('[GoAPI get_market_summary]:', JSON.stringify(data, null, 2));
       const output = `[SYSTEM DATA - MARKET SUMMARY]\n${JSON.stringify(data, null, 2)}\nBerikan ringkasan kondisi pasar berdasarkan data di atas.`;
@@ -113,6 +115,7 @@ export const getTopMovers = tool({
         console.log(`[Cache HIT] ${cacheKey}`);
         return cached;
       }
+      console.log(`[Cache MISS] Fetching new data for: ${cacheKey}`);
       const [gainers, losers] = await Promise.all([
         api.get('/stock/idx/top_gainer'),
         api.get('/stock/idx/top_loser')
@@ -160,6 +163,7 @@ export const compareEmiten = tool({
         console.log(`[Cache HIT] ${cacheKey}`);
         return cached;
       }
+      console.log(`[Cache MISS] Fetching new data for: ${cacheKey}`);
       const { data } = await api.get('/stock/idx/prices', {
         params: { symbols: `${s1},${s2}` }
       });
@@ -201,6 +205,7 @@ export const getHistoricalData = tool({
         console.log(`[Cache HIT] ${cacheKey}`);
         return cached;
       }
+      console.log(`[Cache MISS] Fetching new data for: ${cacheKey}`);
       const { data } = await api.get(`/stock/idx/${sym}/historical`, {
         params: { from: dateFrom, to: dateTo }
       });
@@ -241,6 +246,7 @@ export const getFundamentals = tool({
         console.log(`[Cache HIT] ${cacheKey}`);
         return cached;
       }
+      console.log(`[Cache MISS] Fetching new data for: ${cacheKey}`);
       const { data } = await api.get(`/stock/idx/${sym}/profile`);
       console.log(`[GoAPI get_fundamentals] ${sym}:`, JSON.stringify(data, null, 2));
       const output =
@@ -291,6 +297,7 @@ export const getBrokerSummary = tool({
         console.log(`[Cache HIT] ${cacheKey}`);
         return cached;
       }
+      console.log(`[Cache MISS] Fetching new data for: ${cacheKey}`);
       const { data } = await api.get(`/stock/idx/${sym}/broker_summary`, {
         params: { date: queryDate, investor: queryInvestor }
       });
