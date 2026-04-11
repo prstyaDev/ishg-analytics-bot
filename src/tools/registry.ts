@@ -10,7 +10,7 @@ const api = axios.create({
     'X-API-KEY': env.GOAPI_KEY,
     'Accept': 'application/json'
   },
-  timeout: 15000
+  timeout: 120000
 });
 
 const cache = new NodeCache({ stdTTL: 60, checkperiod: 30 });
@@ -116,16 +116,30 @@ export const getTopMovers = tool({
         return cached;
       }
       console.log(`[Cache MISS] Fetching new data for: ${cacheKey}`);
-      const [gainers, losers] = await Promise.all([
-        api.get('/stock/idx/top_gainer'),
-        api.get('/stock/idx/top_loser')
-      ]);
-      console.log('[GoAPI get_top_movers] Gainers:', JSON.stringify(gainers.data, null, 2));
-      console.log('[GoAPI get_top_movers] Losers:', JSON.stringify(losers.data, null, 2));
+      console.log(`[GoAPI get_top_movers] Memulai fetch data gainers...`);
+      const gainers = await api.get('/stock/idx/top_gainer');
+      console.log(`[GoAPI get_top_movers] Berhasil fetch gainers.`);
+      
+      console.log(`[GoAPI get_top_movers] Memulai fetch data losers...`);
+      const losers = await api.get('/stock/idx/top_loser');
+      console.log(`[GoAPI get_top_movers] Berhasil fetch losers.`);
+
+      // Optimasi: Ambil hanya 10 data teratas agar payload tidak membebani LLM (timeout prevention)
+      const extractData = (res: any) => {
+        const raw = res?.data?.data?.results || res?.data?.data || res?.data || [];
+        return Array.isArray(raw) ? raw.slice(0, 10) : raw;
+      };
+      
+      const limitedGainers = extractData(gainers);
+      const limitedLosers = extractData(losers);
+
+      console.log('[GoAPI get_top_movers] Limited Gainers:', JSON.stringify(limitedGainers, null, 2));
+      console.log('[GoAPI get_top_movers] Limited Losers:', JSON.stringify(limitedLosers, null, 2));
+
       const output =
         `[SYSTEM DATA - TOP MOVERS]\n` +
-        `🟢 TOP GAINERS:\n${JSON.stringify(gainers.data, null, 2)}\n\n` +
-        `🔴 TOP LOSERS:\n${JSON.stringify(losers.data, null, 2)}\n\n` +
+        `🟢 TOP GAINERS (Top 10):\n${JSON.stringify(limitedGainers, null, 2)}\n\n` +
+        `🔴 TOP LOSERS (Top 10):\n${JSON.stringify(limitedLosers, null, 2)}\n\n` +
         `Berikan ringkasan saham-saham yang mengalami pergerakan signifikan hari ini.`;
       cache.set(cacheKey, output);
       return output;

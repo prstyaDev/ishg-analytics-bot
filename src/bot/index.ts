@@ -15,12 +15,36 @@ function getDateRange(daysBack: number) {
   return { dateFrom: fmt(from), dateTo: fmt(to) };
 }
 
+const withTimeout = <T>(promise: Promise<T>, ms: number, timeoutMsg: string): Promise<T> => {
+  let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(timeoutMsg)), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+};
+
 bot.on(message('text'), async (ctx) => {
   console.log(`[Pesan Masuk] dari ${ctx.from.first_name}: ${ctx.message.text}`);
   console.log("[Debug] Memproses pesan:", ctx.message.text);
   try {
     await ctx.sendChatAction('typing');
-    let reply = await processQuery(ctx.message.text, ctx.chat.id.toString());
+    
+    let reply: string;
+    try {
+      reply = await withTimeout(
+        processQuery(ctx.message.text, ctx.chat.id.toString()),
+        120000,
+        'TIMEOUT_ERROR'
+      );
+    } catch (queryErr: any) {
+      if (queryErr.message === 'TIMEOUT_ERROR') {
+        console.log('[System] Query execution timed out after 120 detik.');
+        await ctx.reply("Maaf, pengambilan data market sedang padat, coba lagi sebentar lagi.");
+        return;
+      }
+      throw queryErr;
+    }
+    
     console.log('[AI Final Output]:', reply);
     
     if (!reply || reply.trim() === '') {

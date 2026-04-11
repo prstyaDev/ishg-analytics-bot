@@ -65,7 +65,9 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
-const SYSTEM_PROMPT = `Anda adalah Hermes, asisten ahli saham IHSG.
+const getSystemPrompt = () => {
+  const current_date = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'full', timeStyle: 'long' });
+  return `Kamu adalah Hermes, AI Stock Agent aktif. Hari ini adalah ${current_date}. Kamu memiliki akses ke data pasar modal melalui GoAPI, jadi jangan pernah katakan datamu terbatas hingga 2023. Gunakan data terbaru dari tool yang tersedia.
 
 TOOLS YANG TERSEDIA:
 1. get_stock_price — Cek harga saham terkini (parameter: symbol)
@@ -90,6 +92,7 @@ ATURAN:
 10. Jika pengguna bertanya tentang bandar, broker, asing masuk/keluar, akumulasi/distribusi, gunakan get_broker_summary.
 11. Jika pengguna MEMINTA GAMBAR, CHART, GRAFIK, atau VISUALISASI dari sebuah pergerakan saham, gunakan request_chart.
 12. Kamu memiliki memori percakapan. Gunakan konteks percakapan sebelumnya untuk menjawab pertanyaan follow-up.`;
+};
 
 export const processQuery = async (input: string, chatId: string) => {
   try {
@@ -102,11 +105,11 @@ export const processQuery = async (input: string, chatId: string) => {
 
     const result = await generateText({
       model: ollama.chat(env.OLLAMA_MODEL),
-      system: SYSTEM_PROMPT,
+      system: getSystemPrompt(),
       messages: history,
       tools: tools,
       // @ts-ignore
-      maxSteps: 5,
+      maxSteps: 3,
     });
 
     // 1. Ekstrak teks utama dari result
