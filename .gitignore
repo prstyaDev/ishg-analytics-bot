@@ -5,3 +5,4 @@ goapi_test.json
 test_output.json
 dist/
 *.log
+hermes.db

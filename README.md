@@ -1,37 +1,41 @@
 # 📈 ISHG Bot
 
-Bot Telegram berbasis AI untuk analisis saham IHSG secara real-time. Menggunakan LLM lokal (Ollama) dengan tool calling untuk menarik data pasar dari [GoAPI](https://goapi.io) dan menghasilkan analisis teknikal otomatis.
+Bot Telegram berbasis AI untuk analisis saham IHSG secara real-time. Menggunakan **Google Gemini** (via Vercel AI SDK) dengan tool calling untuk menarik data pasar dari [GoAPI](https://goapi.io), mengelola watchlist pribadi, dan menghasilkan analisis teknikal otomatis.
 
 ## Fitur Utama
 
-- **Analisis Real-time:** Menarik data harga, statistik pasar mingguan, top gainer/loser, hingga fundamental murni dari [GoAPI](https://goapi.io).
-- **Session Memory:** AI dapat mengingat riwayat percakapan sebelumnya per chat (Dibatasi 20 pesan terakhir dengan TTL 1 jam agar hemat memori API LLM).
-- **Caching:** Menyimpan sementara pemanggilan GoAPI dengan TTL 60 detik melalui `node-cache` untuk penghematan *request/bandwidth*.
-- **Visualisasi Chart:** Bot berkemampuan me-render grafik (chart) harga saham selama 30 hari ke belakang menjadi gambar secara dinamis dengan menggunakan dependensi native \`chartjs-node-canvas\`.
+- **Analisis Real-time:** Menarik data harga, statistik pasar, top gainer/loser, fundamental, dan bandarmologi dari [GoAPI](https://goapi.io).
+- **Watchlist Pribadi:** Simpan, lihat, dan hapus saham dari daftar pantauan personal berbasis SQLite.
+- **Session Memory:** AI mengingat riwayat percakapan per chat (max 20 pesan, TTL 1 jam).
+- **Caching:** Response GoAPI di-cache 60 detik via `node-cache` untuk hemat request.
+- **Visualisasi Chart:** Render grafik harga saham 30 hari ke belakang menjadi gambar dengan `chartjs-node-canvas`.
+- **Time-Aware:** AI mengetahui tanggal dan waktu saat ini (WIB) secara real-time.
 
 ## Arsitektur
 
 ```text
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Telegram   │────▶│   Telegraf   │────▶│   Hermes     │────▶│   Ollama     │
-│   User       │◀────│   Bot Handler│◀────│   AI Agent   │◀────│   LLM (7B)   │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────┬───────┘
-                                                                      │
-                                                                      │ tool call
-                                                                      ▼
-                                                               ┌──────────────┐
-                                                               │   GoAPI      │
-                                                               │   Stock IDX  │
-                                                               └──────────────┘
+│   Telegram   │────▶│   Telegraf   │────▶│   Hermes     │────▶│   Google     │
+│   User       │◀────│   Bot Handler│◀────│   AI Agent   │◀────│   Gemini API │
+└──────────────┘     └──────────────┘     └──────┬───────┘     └──────────────┘
+                                                  │
+                                          tool call│
+                                    ┌─────────────┼─────────────┐
+                                    ▼             ▼             ▼
+                             ┌───────────┐ ┌───────────┐ ┌───────────┐
+                             │  GoAPI    │ │  SQLite   │ │  Chart    │
+                             │  IDX Data │ │  Watchlist│ │  Renderer │
+                             └───────────┘ └───────────┘ └───────────┘
 ```
 
 | Layer | File | Deskripsi |
 |---|---|---|
-| **Entrypoint** | `src/index.ts` | Express server + Telegraf (polling/webhook) |
-| **Bot Handler** | `src/bot/index.ts` | Menerima pesan, intercept chart, memanggil agen |
-| **AI Agent** | `src/agent/hermes.ts` | Orkestrasi LLM, session context |
-| **Tool Registry** | `src/tools/registry.ts` | Definisi 8 tool (harga, trending, top movers, dsb) |
-| **Chart Util** | `src/utils/chart.ts` | Helper function render chartjs-node-canvas |
+| **Entrypoint** | `src/index.ts` | Express server + Telegraf + DB init |
+| **Bot Handler** | `src/bot/index.ts` | Menerima pesan, timeout handling, intercept chart |
+| **AI Agent** | `src/agent/hermes.ts` | Orkestrasi LLM, session context, tool routing |
+| **Tool Registry** | `src/tools/registry.ts` | 11 tools (market data + watchlist CRUD) |
+| **Database** | `src/db/index.ts` | SQLite init & accessor (portfolio, watchlist, alerts) |
+| **Chart Util** | `src/utils/chart.ts` | Render grafik saham via chartjs-node-canvas |
 | **Config** | `src/config/env.ts` | Validasi environment variables dengan Zod |
 
 ## Tech Stack
@@ -40,20 +44,20 @@ Bot Telegram berbasis AI untuk analisis saham IHSG secara real-time. Menggunakan
 |---|---|---|
 | TypeScript | 6.x | Bahasa utama |
 | Vercel AI SDK | 6.x | Orkestrasi LLM + tool calling |
-| @ai-sdk/openai | 3.x | Provider OpenAI-compatible (Ollama) |
+| @ai-sdk/google | latest | Provider Google Gemini |
 | Telegraf | 4.x | Telegram Bot API |
 | Express | 5.x | HTTP server (webhook mode) |
+| SQLite3 + sqlite | latest | Database lokal untuk watchlist & portfolio |
 | Axios | 1.x | HTTP client untuk GoAPI |
 | Zod | 4.x | Validasi schema |
-| Ollama | - | Runtime LLM lokal |
+| node-cache | 5.x | In-memory caching |
 
 ## Prasyarat
 
 - **Node.js** ≥ 18
-- **Ollama** terinstal dan berjalan di `localhost:11434`
-- Model LLM sudah di-pull (default: `qwen3:8b`)
 - **Telegram Bot Token** dari [@BotFather](https://t.me/BotFather)
 - **GoAPI Key** dari [goapi.io](https://goapi.io)
+- **Google AI API Key** dari [Google AI Studio](https://aistudio.google.com/apikey)
 
 ## Setup
 
@@ -65,17 +69,13 @@ cd ishg-bot
 npm install
 ```
 
-### 2. Pull Model Ollama
+### 2. Konfigurasi Environment Variables
+
+Salin `.env.example` ke `.env` dan isi dengan API key yang sesuai:
 
 ```bash
-ollama pull qwen3:8b
+cp .env.example .env
 ```
-
-Atau gunakan model lain yang mendukung tool calling (misalnya `llama3.1:8b`, `mistral:7b`).
-
-### 3. Konfigurasi Environment Variables
-
-Buat file `.env` di root project:
 
 ```env
 # [WAJIB] Token bot Telegram dari @BotFather
@@ -84,17 +84,14 @@ TELEGRAM_BOT_TOKEN="your-telegram-bot-token"
 # [WAJIB] API key dari goapi.io untuk data saham IDX
 GOAPI_KEY="your-goapi-key"
 
+# [WAJIB] API key dari Google AI Studio untuk Gemini
+GOOGLE_GENERATIVE_AI_API_KEY="your-google-ai-api-key"
+
 # [OPSIONAL] Port untuk Express server (default: 3000)
 PORT=3000
 
 # [OPSIONAL] Mode aplikasi: development (polling) | production (webhook)
 NODE_ENV=development
-
-# [OPSIONAL] Base URL Ollama (default: http://localhost:11434/v1)
-OLLAMA_BASE_URL=http://localhost:11434/v1
-
-# [OPSIONAL] Model Ollama yang digunakan (default: qwen3:8b)
-OLLAMA_MODEL=qwen3:8b
 ```
 
 #### Detail Environment Variables
@@ -103,15 +100,14 @@ OLLAMA_MODEL=qwen3:8b
 |---|---|---|---|
 | `TELEGRAM_BOT_TOKEN` | ✅ | - | Token dari @BotFather |
 | `GOAPI_KEY` | ✅ | - | API key GoAPI untuk data saham IDX |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | ✅ | - | API key Google AI Studio untuk Gemini |
 | `PORT` | ❌ | `3000` | Port Express (hanya untuk mode production/webhook) |
 | `NODE_ENV` | ❌ | `development` | `development` = polling, `production` = webhook |
-| `OLLAMA_BASE_URL` | ❌ | `http://localhost:11434/v1` | Endpoint Ollama |
-| `OLLAMA_MODEL` | ❌ | `qwen3:8b` | Nama model Ollama |
 
-### 4. Jalankan
+### 3. Jalankan
 
 ```bash
-# Development (polling mode)
+# Development (polling mode, auto-reload)
 npm run dev
 
 # Production build
@@ -119,63 +115,42 @@ npm run build
 npm start
 ```
 
-## API Reference
+## Tool Registry (11 Tools)
 
-### Base Configuration
-
-Semua request menggunakan konfigurasi berikut:
-
-```
-Base URL: https://api.goapi.io
-Headers:
-  X-API-KEY: <GOAPI_KEY>
-  Accept: application/json
-Timeout: 15000ms
-```
-
-### Tool Registry (8 Tools)
-
-Berikut adalah daftar lengkap tool yang tersedia untuk dipanggil oleh LLM melalui Vercel AI SDK:
+### Market Data Tools (8)
 
 | # | Tool | Endpoint | Parameter | Deskripsi |
-|---|------|----------|-----------|-----------|
-| 1 | `get_stock_price` | `GET /stock/idx/prices?symbols={symbol}` | `symbol` (string) | Harga saham terkini berdasarkan kode emiten |
-| 2 | `get_market_summary` | `GET /stock/idx/trending` | — | Ringkasan pasar IHSG & saham trending hari ini |
-| 3 | `get_top_movers` | `GET /stock/idx/top_gainer` + `GET /stock/idx/top_loser` | — | Top Gainer & Top Loser hari ini (parallel fetch) |
-| 4 | `compare_emiten` | `GET /stock/idx/prices?symbols={s1},{s2}` | `symbol1`, `symbol2` (string) | Komparasi harga & volume dua emiten side-by-side |
-| 5 | `get_historical_data` | `GET /stock/idx/{symbol}/historical?from=&to=` | `symbol` (string) | Data historis harga 30 hari terakhir (tanggal auto-generate) |
-| 6 | `get_fundamentals` | `GET /stock/idx/{symbol}/profile` | `symbol` (string) | Profil perusahaan & rasio keuangan (PER, PBV, ROE, EPS) |
-| 7 | `get_broker_summary` | `GET /stock/idx/{symbol}/broker_summary?date=&investor=` | `symbol` (string), `date?` (YYYY-MM-DD), `investor?` (LOCAL/FOREIGN/ALL) | Analisis bandarmologi: aktivitas broker lokal & asing |
-| 8 | `request_chart` | — | `symbol` (string) | AI menyisipkan command Telegram untuk membuat grafik visual saham |
+|---|------|----------|-----------|-----------| 
+| 1 | `get_stock_price` | `GET /stock/idx/prices` | `symbol` | Harga saham terkini |
+| 2 | `get_market_summary` | `GET /stock/idx/trending` | — | Ringkasan pasar IHSG & trending |
+| 3 | `get_top_movers` | `GET /stock/idx/top_gainer` + `top_loser` | — | Top Gainer & Loser (limited top 10) |
+| 4 | `compare_emiten` | `GET /stock/idx/prices` | `symbol1`, `symbol2` | Komparasi dua emiten |
+| 5 | `get_historical_data` | `GET /stock/idx/{symbol}/historical` | `symbol` | Data historis 30 hari |
+| 6 | `get_fundamentals` | `GET /stock/idx/{symbol}/profile` | `symbol` | Profil & rasio keuangan |
+| 7 | `get_broker_summary` | `GET /stock/idx/{symbol}/broker_summary` | `symbol`, `date?`, `investor?` | Bandarmologi |
+| 8 | `request_chart` | — (internal) | `symbol` | Render chart grafik saham |
 
-### Contoh Response (get_stock_price)
+### Watchlist Tools (3) — Factory Pattern
 
-```json
-{
-  "status": "success",
-  "message": "Menampilkan harga terakhir dari 1 saham.",
-  "data": {
-    "results": [
-      {
-        "symbol": "BBCA",
-        "company": {
-          "symbol": "BBCA",
-          "name": "Bank Central Asia Tbk.",
-          "logo": "https://s3.goapi.io/logo/BBCA.jpg"
-        },
-        "date": "2026-04-02",
-        "open": 6550,
-        "high": 6600,
-        "low": 6525,
-        "close": 6525,
-        "volume": 10608100,
-        "change": 25,
-        "change_pct": 0.3846
-      }
-    ]
-  }
-}
-```
+Watchlist tools menggunakan **factory function** pattern: `chatId` di-inject otomatis dari konteks Telegram, sehingga AI hanya perlu menyebut kode saham.
+
+| # | Tool | Parameter | Deskripsi |
+|---|------|-----------|-----------|
+| 9 | `add_to_watchlist` | `symbol` | Tambah saham ke watchlist |
+| 10 | `get_watchlist` | — | Lihat isi watchlist |
+| 11 | `remove_from_watchlist` | `symbol` | Hapus saham dari watchlist |
+
+## Database (SQLite)
+
+Bot menggunakan SQLite (`hermes.db`) untuk penyimpanan lokal. Database dibuat otomatis saat pertama kali dijalankan.
+
+### Tabel
+
+| Tabel | Kolom | Deskripsi |
+|-------|-------|-----------|
+| `portfolio` | id, chat_id, symbol, average_price, total_lot, created_at | Portofolio saham user |
+| `watchlist` | id, chat_id, symbol, created_at | Daftar pantauan saham |
+| `alerts` | id, chat_id, symbol, target_price, condition, is_active, created_at | Price alert (ABOVE/BELOW) |
 
 ## Cara Kerja AI Agent
 
@@ -183,35 +158,39 @@ Berikut adalah daftar lengkap tool yang tersedia untuk dipanggil oleh LLM melalu
 User mengirim pesan
         │
         ▼
-┌─ Phase 1: generateText() dengan 8 tools ───────────┐
-│  LLM menentukan tool mana yang relevan:             │
-│  • Harga? → get_stock_price                         │
-│  • Pasar? → get_market_summary / get_top_movers     │
-│  • Banding? → compare_emiten                        │
-│  • Historis? → get_historical_data                  │
-│  • Fundamental? → get_fundamentals                  │
-│  • Bandar? → get_broker_summary                     │
-│  • Menggambar Grafik? → request_chart               │
-│                                                     │
-│  GoAPI mengembalikan data → LLM merangkum           │
-└─────────────────────────────────────────────────────┘
+┌─ Phase 1: generateText() dengan 11 tools ──────────┐
+│  Gemini menentukan tool mana yang relevan:           │
+│  • Harga? → get_stock_price                          │
+│  • Pasar? → get_market_summary / get_top_movers      │
+│  • Banding? → compare_emiten                         │
+│  • Historis? → get_historical_data                   │
+│  • Fundamental? → get_fundamentals                   │
+│  • Bandar? → get_broker_summary                      │
+│  • Grafik? → request_chart                           │
+│  • Watchlist? → add/get/remove_from_watchlist         │
+│                                                      │
+│  GoAPI/SQLite → data → Gemini merangkum              │
+└──────────────────────────────────────────────────────┘
         │
         ▼ result.text ada?
        / \
-     Ya    Tidak (model kecil kadang gagal loop)
+     Ya    Tidak
       │        │
       ▼        ▼
    Return   ┌─ Phase 2: generateText() tanpa tools ──┐
-             │  Kirim data tool ke LLM sebagai prompt  │
-             │  LLM generate analisis dari data        │
+             │  Kirim data tool ke Gemini sebagai      │
+             │  prompt → generate analisis             │
              └─────────────────────────────────────────┘
 ```
 
-Phase 2 adalah fallback untuk model kecil (7-8B) yang terkadang tidak bisa melanjutkan generasi teks setelah tool call selesai. `maxSteps: 5` mengizinkan LLM memanggil lebih dari satu tool dalam satu sesi.
+## Error Handling
 
-## Database
-
-Project ini **tidak menggunakan database**. Semua data saham diambil secara real-time dari GoAPI dan tidak disimpan secara persisten.
+| Error | Penanganan |
+|-------|------------|
+| **Timeout > 120 detik** | Bot mengirim pesan: "Pengambilan data market sedang padat" |
+| **Google AI Rate Limit** | Deteksi `RESOURCE_EXHAUSTED`, kirim pesan informatif ke user |
+| **GoAPI Gagal** | Per-tool error handling, return pesan error ke AI untuk disampaikan |
+| **Tool Data Kosong** | Fallback Phase 2 untuk generate analisis dari data mentah |
 
 ## Deployment
 
@@ -229,32 +208,30 @@ Bot menggunakan long polling — tidak perlu domain publik atau SSL.
 NODE_ENV=production npm start
 ```
 
-Pada mode production, bot menerima update via webhook di path:
-
-```
-POST /webhook/<secret-path>
-```
-
 Pastikan server memiliki:
 - Domain publik dengan HTTPS
 - Port yang terbuka (default: 3000)
-- Webhook URL yang sudah di-set ke Telegram via `setWebhook`
 
 ## Struktur Project
 
 ```
 ishg-bot/
 ├── src/
-│   ├── index.ts              # Entrypoint (Express + Telegraf)
+│   ├── index.ts              # Entrypoint (Express + Telegraf + DB init)
 │   ├── agent/
-│   │   └── hermes.ts         # AI agent (Vercel AI SDK + Ollama)
+│   │   └── hermes.ts         # AI agent (Vercel AI SDK + Gemini)
 │   ├── bot/
-│   │   └── index.ts          # Telegram message handler
+│   │   └── index.ts          # Telegram handler + timeout + rate limit
 │   ├── config/
 │   │   └── env.ts            # Environment validation (Zod)
-│   └── tools/
-│       └── registry.ts       # Tool definitions (GoAPI)
+│   ├── db/
+│   │   └── index.ts          # SQLite database init & accessor
+│   ├── tools/
+│   │   └── registry.ts       # 11 tool definitions (GoAPI + Watchlist)
+│   └── utils/
+│       └── chart.ts          # Chart renderer (chartjs-node-canvas)
 ├── .env                      # Environment variables (tidak di-commit)
+├── .env.example              # Template environment variables
 ├── .gitignore
 ├── package.json
 └── tsconfig.json

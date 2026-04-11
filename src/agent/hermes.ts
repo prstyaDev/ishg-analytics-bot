@@ -1,13 +1,6 @@
-import { generateText } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
-import { env } from '../config/env';
-import { tools } from '../tools/registry';
-
-const ollama = createOpenAI({
-  baseURL: env.OLLAMA_BASE_URL,
-  apiKey: 'ollama-local',
-  compatibility: 'compatible'
-});
+import { generateText, stepCountIs } from 'ai';
+import { google } from '@ai-sdk/google';
+import { createAllTools } from '../tools/registry';
 
 // ────────────────────────────────────────────────────────────────────────────────
 // SESSION MEMORY — Per chat_id, max 20 pesan terakhir, TTL 1 jam
@@ -78,6 +71,9 @@ TOOLS YANG TERSEDIA:
 6. get_fundamentals — Profil perusahaan & rasio keuangan PER, PBV, ROE, EPS (parameter: symbol)
 7. get_broker_summary — Analisis bandarmologi: aktivitas broker lokal/asing (parameter: symbol, date?, investor?)
 8. request_chart — Menghasilkan visualisasi grafik tren harga saham dalam bentuk gambar (parameter: symbol)
+9. add_to_watchlist — Tambahkan saham ke watchlist pengguna (parameter: symbol saja)
+10. get_watchlist — Lihat daftar saham di watchlist pengguna (tanpa parameter)
+11. remove_from_watchlist — Hapus saham dari watchlist pengguna (parameter: symbol saja)
 
 ATURAN:
 1. Pilih tool yang paling relevan berdasarkan pertanyaan pengguna. Boleh memanggil lebih dari satu tool jika diperlukan.
@@ -91,7 +87,8 @@ ATURAN:
 9. Jika pengguna bertanya tentang valuasi/fundamental/profil perusahaan, gunakan get_fundamentals.
 10. Jika pengguna bertanya tentang bandar, broker, asing masuk/keluar, akumulasi/distribusi, gunakan get_broker_summary.
 11. Jika pengguna MEMINTA GAMBAR, CHART, GRAFIK, atau VISUALISASI dari sebuah pergerakan saham, gunakan request_chart.
-12. Kamu memiliki memori percakapan. Gunakan konteks percakapan sebelumnya untuk menjawab pertanyaan follow-up.`;
+12. Jika pengguna ingin menambah, melihat, atau menghapus saham dari watchlist, gunakan tool watchlist yang sesuai. TIDAK perlu mengisi chatId, sistem akan menanganinya otomatis.
+13. Kamu memiliki memori percakapan. Gunakan konteks percakapan sebelumnya untuk menjawab pertanyaan follow-up.`;
 };
 
 export const processQuery = async (input: string, chatId: string) => {
@@ -103,13 +100,16 @@ export const processQuery = async (input: string, chatId: string) => {
     const history = getSession(chatId);
     console.log(`[Session] chatId=${chatId}, messages=${history.length}`);
 
+    // Buat tools per-request dengan chatId ter-inject untuk watchlist
+    const allTools = createAllTools(chatId);
+
     const result = await generateText({
-      model: ollama.chat(env.OLLAMA_MODEL),
+      model: google('gemini-2.0-flash-lite'),
       system: getSystemPrompt(),
       messages: history,
-      tools: tools,
-      // @ts-ignore
-      maxSteps: 3,
+      tools: allTools,
+      stopWhen: stepCountIs(3),
+      maxRetries: 1,
     });
 
     // 1. Ekstrak teks utama dari result
@@ -136,8 +136,9 @@ export const processQuery = async (input: string, chatId: string) => {
     // 3. Fallback Phase 2: jika model gagal merangkum walau toolData ada
     if (!finalReply.trim() && toolData) {
       const summary = await generateText({
-        model: ollama.chat(env.OLLAMA_MODEL),
+        model: google('gemini-2.0-flash-lite'),
         prompt: `${toolData}\n\nBerdasarkan data di atas, berikan analisis teknikal singkat dalam bahasa Indonesia untuk pengguna.`,
+        maxRetries: 1,
       });
       finalReply = summary.text;
     }
@@ -155,8 +156,10 @@ export const processQuery = async (input: string, chatId: string) => {
     }
 
     return finalReply;
-  } catch (error) {
-    console.error('[AI SDK Error]:', error);
+  } catch (error: any) {
+    console.error('[AI SDK Error]:', error?.message);
+    if (error?.data) console.error('[AI SDK Error Data]:', JSON.stringify(error.data, null, 2));
+    if (error?.cause) console.error('[AI SDK Error Cause]:', error.cause?.message || error.cause);
     throw error;
   }
 };

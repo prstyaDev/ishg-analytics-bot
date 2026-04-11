@@ -3,6 +3,7 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import NodeCache from 'node-cache';
 import { env } from '../config/env';
+import { getDb } from '../db';
 
 const api = axios.create({
   baseURL: 'https://api.goapi.io',
@@ -349,9 +350,120 @@ export const requestChart = tool({
 });
 
 // ────────────────────────────────────────────────────────────────────────────────
+// WATCHLIST TOOLS — Factory function (chatId di-inject otomatis, bukan dari AI)
+// ────────────────────────────────────────────────────────────────────────────────
+export function createWatchlistTools(chatId: string) {
+  const numericChatId = Number(chatId);
+
+  const addToWatchlist = tool({
+    description:
+      'Menambahkan saham ke daftar watchlist pengguna. ' +
+      'Gunakan tool ini ketika pengguna ingin memantau atau mengikuti suatu saham. ' +
+      'Contoh: "watchlist BBCA", "pantau TLKM", "tambah BBRI ke watchlist saya".',
+    inputSchema: z.object({
+      symbol: z
+        .string()
+        .describe('Kode emiten saham 4 huruf di BEI, contoh: BBCA')
+    }),
+    execute: async ({ symbol }) => {
+      try {
+        const db = getDb();
+        const sym = symbol.toUpperCase();
+
+        const existing = await db.get(
+          'SELECT id FROM watchlist WHERE chat_id = ? AND symbol = ?',
+          [numericChatId, sym]
+        );
+
+        if (existing) {
+          return `[SYSTEM] Saham ${sym} sudah ada di watchlist Anda.`;
+        }
+
+        await db.run(
+          'INSERT INTO watchlist (chat_id, symbol) VALUES (?, ?)',
+          [numericChatId, sym]
+        );
+        console.log(`[Watchlist] Added ${sym} for chat ${chatId}`);
+        return `[SYSTEM] Saham ${sym} berhasil ditambahkan ke watchlist Anda.`;
+      } catch (err: any) {
+        console.error('[add_to_watchlist Error]:', err?.message);
+        return `[SYSTEM ERROR] Gagal menambahkan saham ke watchlist.`;
+      }
+    }
+  });
+
+  const getWatchlist = tool({
+    description:
+      'Menampilkan daftar saham yang ada di watchlist pengguna. ' +
+      'Gunakan tool ini ketika pengguna ingin melihat saham yang sedang dipantau. ' +
+      'Contoh: "lihat watchlist saya", "watchlist apa saja?", "daftar pantauan saya".',
+    inputSchema: z.object({}),
+    execute: async () => {
+      try {
+        const db = getDb();
+        const rows = await db.all(
+          'SELECT symbol FROM watchlist WHERE chat_id = ?',
+          [numericChatId]
+        );
+
+        if (!rows || rows.length === 0) {
+          return '[SYSTEM] Watchlist Anda masih kosong.';
+        }
+
+        const symbols = rows.map((r: any) => r.symbol).join(', ');
+        console.log(`[Watchlist] Fetched ${rows.length} items for chat ${chatId}`);
+        return `[SYSTEM DATA - WATCHLIST] Daftar saham di watchlist Anda (${rows.length} saham): ${symbols}. Sampaikan daftar ini ke pengguna dengan format yang rapi.`;
+      } catch (err: any) {
+        console.error('[get_watchlist Error]:', err?.message);
+        return '[SYSTEM ERROR] Gagal mengambil data watchlist.';
+      }
+    }
+  });
+
+  const removeFromWatchlist = tool({
+    description:
+      'Menghapus saham dari daftar watchlist pengguna. ' +
+      'Gunakan tool ini ketika pengguna ingin berhenti memantau suatu saham. ' +
+      'Contoh: "hapus BBCA dari watchlist", "remove TLKM", "jangan pantau BBRI lagi".',
+    inputSchema: z.object({
+      symbol: z
+        .string()
+        .describe('Kode emiten saham 4 huruf di BEI yang ingin dihapus, contoh: BBCA')
+    }),
+    execute: async ({ symbol }) => {
+      try {
+        const db = getDb();
+        const sym = symbol.toUpperCase();
+
+        const result = await db.run(
+          'DELETE FROM watchlist WHERE chat_id = ? AND symbol = ?',
+          [numericChatId, sym]
+        );
+
+        if (result.changes && result.changes > 0) {
+          console.log(`[Watchlist] Removed ${sym} for chat ${chatId}`);
+          return `[SYSTEM] Saham ${sym} berhasil dihapus dari watchlist Anda.`;
+        } else {
+          return `[SYSTEM] Saham ${sym} tidak ditemukan di watchlist Anda.`;
+        }
+      } catch (err: any) {
+        console.error('[remove_from_watchlist Error]:', err?.message);
+        return `[SYSTEM ERROR] Gagal menghapus saham dari watchlist.`;
+      }
+    }
+  });
+
+  return {
+    add_to_watchlist: addToWatchlist,
+    get_watchlist: getWatchlist,
+    remove_from_watchlist: removeFromWatchlist
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
 // TOOLS REGISTRY
 // ────────────────────────────────────────────────────────────────────────────────
-export const tools = {
+const baseTools = {
   get_stock_price: getPrice,
   get_market_summary: getMarketSummary,
   get_top_movers: getTopMovers,
@@ -361,3 +473,13 @@ export const tools = {
   get_broker_summary: getBrokerSummary,
   request_chart: requestChart
 };
+
+export function createAllTools(chatId: string) {
+  return {
+    ...baseTools,
+    ...createWatchlistTools(chatId)
+  };
+}
+
+// Export base tools untuk backward-compat jika diperlukan
+export const tools = baseTools;

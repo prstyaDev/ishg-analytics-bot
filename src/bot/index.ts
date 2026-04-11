@@ -39,7 +39,14 @@ bot.on(message('text'), async (ctx) => {
     } catch (queryErr: any) {
       if (queryErr.message === 'TIMEOUT_ERROR') {
         console.log('[System] Query execution timed out after 120 detik.');
-        await ctx.reply("Maaf, pengambilan data market sedang padat, coba lagi sebentar lagi.");
+        await ctx.reply("⏱ Maaf, pengambilan data market sedang padat, coba lagi sebentar lagi.");
+        return;
+      }
+      // Deteksi rate limit / quota exceeded dari Google AI
+      const errStr = JSON.stringify(queryErr?.data || queryErr?.cause || queryErr?.message || '');
+      if (errStr.includes('RESOURCE_EXHAUSTED') || errStr.includes('rate_limit') || errStr.includes('free_tier')) {
+        console.log('[System] Google AI rate limit exceeded.');
+        await ctx.reply("⚠️ Kuota API Google AI sedang habis (free tier limit). Tunggu 1 menit lalu coba lagi, atau upgrade ke paid tier di Google AI Studio.");
         return;
       }
       throw queryErr;
